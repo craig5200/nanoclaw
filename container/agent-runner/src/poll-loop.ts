@@ -407,6 +407,10 @@ export async function processQuery(
         const newMessages = pending.filter((m) => m.kind !== 'system');
         if (newMessages.length === 0) return;
 
+        // Match the outer-loop accumulate gate: trigger=0-only batches stay
+        // pending until a real trigger=1 message arrives.
+        if (!newMessages.some((m) => m.trigger === 1)) return;
+
         const newIds = newMessages.map((m) => m.id);
         markProcessing(newIds);
 

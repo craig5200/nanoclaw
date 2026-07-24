@@ -411,6 +411,57 @@ const ERR_ROUTING = {
   inReplyTo: 'm1',
 };
 
+describe('active-query accumulate gate', () => {
+  it('leaves a trigger=0-only follow-up batch pending without pushing', async () => {
+    const pushes: string[] = [];
+
+    async function* events(): AsyncGenerator<ProviderEvent> {
+      yield { type: 'init', continuation: 'sess-1' };
+      insertMessage('m1', 'chat', { sender: 'A', text: 'context only' }, { trigger: 0 });
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+
+    const query: AgentQuery = {
+      push: (message) => pushes.push(message),
+      end: () => {},
+      events: events(),
+      abort: () => {},
+    };
+
+    await processQuery(query, ERR_ROUTING, [], 'claude', undefined, 'prompt', undefined);
+
+    expect(pushes).toHaveLength(0);
+    expect(getPendingMessages().map((m) => m.id)).toEqual(['m1']);
+  });
+
+  it('pushes trigger=1 follow-ups with accumulated trigger=0 rows', async () => {
+    const pushes: string[] = [];
+
+    async function* events(): AsyncGenerator<ProviderEvent> {
+      yield { type: 'init', continuation: 'sess-1' };
+      insertMessage('m1', 'chat', { sender: 'A', text: 'earlier context' }, { trigger: 0 });
+      insertMessage('m2', 'chat', { sender: 'B', text: 'real trigger' }, { trigger: 1 });
+      const deadline = Date.now() + 5000;
+      while (pushes.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
+    const query: AgentQuery = {
+      push: (message) => pushes.push(message),
+      end: () => {},
+      events: events(),
+      abort: () => {},
+    };
+
+    await processQuery(query, ERR_ROUTING, [], 'claude', undefined, 'prompt', undefined);
+
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]).toContain('earlier context');
+    expect(pushes[0]).toContain('real trigger');
+  });
+});
+
 describe('error result with no <message> envelope', () => {
   it('delivers a budget/billing error to the triggering channel and does not nudge', async () => {
     const budgetText = 'Spending limit reached. Add your own key at https://example.com/keys';
