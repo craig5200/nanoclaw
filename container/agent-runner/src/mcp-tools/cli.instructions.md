@@ -28,6 +28,8 @@ Run `ncl help` for the full list. Common resources:
 
 Additional resources (available under `global` scope only): messaging-groups, wirings, users, roles, user-dms, dropped-messages, approvals.
 
+Task commands default to your own agent group. Under `global` CLI scope, inspect another group's tasks with `ncl tasks list --group <agent-group-id>`. When a list is empty, name the queried group (for example, "no tasks in group X") instead of saying "there are no tasks."
+
 ### When to use
 
 - **Looking up your own config** — `ncl groups get` or `ncl groups config get` to see your container config.

@@ -22,6 +22,7 @@ vi.mock('../../container-runner.js', () => ({
 const TEST_DIR = '/tmp/nanoclaw-test-cli-tasks';
 
 import { initTestDb, closeDb, runMigrations, createAgentGroup } from '../../db/index.js';
+import { ensureContainerConfig, updateContainerConfigScalars } from '../../db/container-configs.js';
 import { createSession, findSessionByAgentGroup, getSessionsByAgentGroup, taskThreadId } from '../../db/sessions.js';
 import { countDueMessages } from '../../db/session-db.js';
 import { inboundDbPath, initSessionFolder } from '../../session-manager.js';
@@ -129,6 +130,57 @@ describe('tasks CLI resource', () => {
     expect(resp.human).toBeDefined();
     expect(resp.human).toMatch(/SERIES\s+SCHEDULE\s+RUNS\s+FAILED\s+LAST RUN\s+NEXT RUN/);
     expect(resp.human).toContain('briefing-');
+  });
+
+  it("global-scope agents can list another group's tasks with --group", async () => {
+    const created = await dispatch(
+      {
+        id: 'cross-create',
+        command: 'tasks-create',
+        args: { name: 'other-task', prompt: 'x', process_after: '2999-01-01T00:00:00Z' },
+      },
+      agentCtx('ag-2', 'chat-2'),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    ensureContainerConfig('ag-1');
+    updateContainerConfigScalars('ag-1', { cli_scope: 'global' });
+    const resp = await dispatch(
+      { id: 'cross-list', command: 'tasks-list', args: { group: 'ag-2' } },
+      agentCtx('ag-1', 'chat-1'),
+    );
+
+    expect(resp.ok).toBe(true);
+    if (!resp.ok) return;
+    expect(resp.data).toEqual([
+      expect.objectContaining({
+        agent_group_id: 'ag-2',
+        series_id: (created.data as { series_id: string }).series_id,
+      }),
+    ]);
+  });
+
+  it("group-scoped agents cannot list another group's tasks with --group", async () => {
+    const created = await dispatch(
+      {
+        id: 'scoped-create',
+        command: 'tasks-create',
+        args: { name: 'other-task', prompt: 'x', process_after: '2999-01-01T00:00:00Z' },
+      },
+      agentCtx('ag-2', 'chat-2'),
+    );
+    expect(created.ok).toBe(true);
+
+    ensureContainerConfig('ag-1');
+    updateContainerConfigScalars('ag-1', { cli_scope: 'group' });
+    const resp = await dispatch(
+      { id: 'scoped-list', command: 'tasks-list', args: { group: 'ag-2' } },
+      agentCtx('ag-1', 'chat-1'),
+    );
+
+    expect(resp.ok).toBe(false);
+    if (!resp.ok) expect(resp.error.code).toBe('forbidden');
   });
 
   it('recurrence more frequent than 4x/day is refused with the quota warning', async () => {

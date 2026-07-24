@@ -18,6 +18,8 @@ ncl tasks cancel ping-a25c      # or --all as a kill switch
 ncl tasks delete ping-a25c
 ```
 
+Task commands default to your own agent group. Under `global` CLI scope, inspect another group's tasks with `ncl tasks list --group <agent-group-id>`. When a list is empty, name the queried group (for example, "no tasks in group X") instead of saying "there are no tasks."
+
 Use good judgement on whether it's appropriate to check in with the user about the task prompt before task creation, and if so, whether to share verbatim or a description of it.
 
 `--process-after` accepts UTC timestamps or naive local timestamps interpreted in the instance timezone (shown in the `<context timezone="..."/>` header).

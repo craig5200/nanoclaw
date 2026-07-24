@@ -73,8 +73,8 @@ function statusFilter(args: Record<string, unknown>): TaskStatus | undefined {
 }
 
 function groupArg(args: Record<string, unknown>, ctx: CallerContext): string | undefined {
-  if (ctx.caller === 'agent') return ctx.agentGroupId;
-  return str(args.group) ?? str(args.agent_group_id);
+  const requested = str(args.group) ?? str(args.agent_group_id);
+  return requested ?? (ctx.caller === 'agent' ? ctx.agentGroupId : undefined);
 }
 
 function ownSession(sessionId: string, ctx: CallerContext): ScopedSession {
@@ -218,9 +218,9 @@ function appendTaskLog(
   if (!series) throw new Error('--id is required (no task session to derive it from)');
   if (!group) throw new Error('could not resolve the agent group');
 
-  // Group scope is enforced by groupArg (a cli_scope=group caller can only
-  // ever resolve its own folder), so a foreign id at worst writes a stray log
-  // under the caller's OWN folder — no leak. appendRunLog guards the charset.
+  // Group scope is enforced by dispatch + guard before this handler, so a
+  // cli_scope=group caller can only ever resolve its own folder. appendRunLog
+  // guards the id charset.
   return { ...appendRunLog(group, series, msg), ok: true };
 }
 
@@ -442,7 +442,8 @@ registerResource({
         {
           name: 'group',
           type: 'string',
-          description: 'Agent group id (host callers; auto-filled to your own group inside a container).',
+          description:
+            'Defaults to your own agent group; under global CLI scope pass --group <agent-group-id> to inspect another group.',
         },
         { name: 'session', type: 'string', description: 'Limit to one task session id.' },
         {
