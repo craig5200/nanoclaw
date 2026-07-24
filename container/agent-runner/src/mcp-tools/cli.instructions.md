@@ -25,10 +25,13 @@ Run `ncl help` for the full list. Common resources:
 | destinations | list, add, remove                                                                                                                         | Where an agent group can send messages                  |
 | members      | list, add, remove                                                                                                                         | Unprivileged access gate for an agent group             |
 | tasks        | list, get, create, update, cancel, pause, resume, delete, append-log                                                                      | Scheduled tasks for your agent group                    |
+| wirings      | list, get, update                                                                                                                         | Response/engagement policy for this agent's chats       |
 
-Additional resources (available under `global` scope only): messaging-groups, wirings, users, roles, user-dms, dropped-messages, approvals.
+Additional resources (available under `global` scope only): messaging-groups, users, roles, user-dms, dropped-messages, approvals.
 
 Task commands default to your own agent group. Under `global` CLI scope, inspect another group's tasks with `ncl tasks list --group <agent-group-id>`. When a list is empty, name the queried group (for example, "no tasks in group X") instead of saying "there are no tasks."
+
+Engagement settings such as `engage_mode` live on the wiring row, not in `groups config`. Under `group` scope, you can read only this agent's wiring rows and may request updates only to `engage_mode`, `engage_pattern`, and `ignored_message_policy`. Wiring create/delete and all other field updates are denied. Every wiring update requires human approval: when it returns `approval-pending`, wait for the system result instead of retrying.
 
 ### When to use
 
@@ -66,6 +69,8 @@ ncl sessions list
 ncl destinations list
 ncl members list
 ncl tasks list
+ncl wirings list
+ncl wirings get <wiring-id>
 # Always pass a short descriptive --name so the task id is readable (e.g. daily-briefing-a25c, not a long uuid).
 # For a recurring task, --recurrence alone sets the schedule (first run derived from it); add --process-after only for one-shots.
 ncl tasks create --name "daily briefing" --prompt "Send the daily briefing" --recurrence "0 9 * * *"
@@ -80,6 +85,7 @@ ncl groups config update --model claude-sonnet-4-5-20250514
 ncl groups config add-mcp-server --name rss --command npx --args '["some-rss-mcp"]'
 ncl groups config add-package --npm some-package
 ncl members add --user telegram:jane
+ncl wirings update <wiring-id> --engage-mode pattern --engage-pattern "."
 ```
 
 ### Important
