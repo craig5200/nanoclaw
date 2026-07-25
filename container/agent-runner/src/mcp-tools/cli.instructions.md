@@ -29,8 +29,6 @@ Run `ncl help` for the full list. Common resources:
 
 Additional resources (available under `global` scope only): messaging-groups, users, roles, user-dms, dropped-messages, approvals.
 
-Task commands default to your own agent group. Under `global` CLI scope, inspect another group's tasks with `ncl tasks list --group <agent-group-id>`. When a list is empty, name the queried group (for example, "no tasks in group X") instead of saying "there are no tasks."
-
 Engagement settings such as `engage_mode` live on the wiring row, not in `groups config`. Under `group` scope, you can read only this agent's wiring rows and may request updates only to `engage_mode`, `engage_pattern`, and `ignored_message_policy`. Wiring create/delete and all other field updates are denied. Every wiring update requires human approval: when it returns `approval-pending`, wait for the system result instead of retrying.
 
 ### When to use
