@@ -103,7 +103,9 @@ function commandDecide(cmd: CommandDef, input: GuardInput) {
         return DENY('Group-scoped agents may only list, get, update, or inspect help for wirings.');
       }
 
-      if (cmd.name === 'wirings-get' || cmd.name === 'wirings-update') {
+      // --help never executes (dispatch intercepts before hold/handler),
+      // so don't demand an owned id just to read help.
+      if (args.help !== true && (cmd.name === 'wirings-get' || cmd.name === 'wirings-update')) {
         const id = typeof args.id === 'string' ? args.id : '';
         const wiring = id ? getMessagingGroupAgent(id) : undefined;
         if (!wiring || wiring.agent_group_id !== actor.agentGroupId) {

@@ -1107,6 +1107,16 @@ describe('--help interception', () => {
     expect(resp.ok).toBe(true);
     expect(approvalState.requestApproval).not.toHaveBeenCalled();
   });
+
+  it.each(['wirings-get', 'wirings-update'])('answers %s --help without an id under group scope', async (command) => {
+    mockGetContainerConfig.mockReturnValue({ cli_scope: 'group' });
+    mockGetResource.mockReturnValue(undefined);
+
+    const resp = await dispatch({ id: '1', command, args: { help: true } }, agentCtx());
+
+    expect(resp.ok).toBe(true);
+    expect(approvalState.requestApproval).not.toHaveBeenCalled();
+  });
 });
 
 // --- Unknown-command errors carry their fix ---
