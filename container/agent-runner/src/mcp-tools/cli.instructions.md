@@ -40,7 +40,8 @@ Engagement settings such as `engage_mode` live on the wiring row, not in `groups
 - **Checking who's in your group** — `ncl members list`.
 - **Seeing your destinations** — `ncl destinations list`.
 - **Scheduling work** — `ncl tasks create`, then `ncl tasks list/get/update/cancel/pause/resume/delete`; `ncl tasks run <id>` fires one extra run now (testing) without changing the schedule. Each task run auto-logs its final text to the run log; `ncl tasks append-log --msg "…"` is for extra mid-run notes (host-timestamped, not a message).
-- **Answering questions about the system** — query `ncl` rather than guessing.
+- **Answering questions about the system** — query `ncl` and answer from the current configuration.
+- **Explaining response behavior** — when someone asks why you replied or stayed silent, run `ncl wirings list` and answer from the relevant wiring's `engage_mode`, `engage_pattern`, and `ignored_message_policy`. Messages marked `delivery="accumulated"` arrived as background context after a later message engaged you.
 
 ### Access rules
 

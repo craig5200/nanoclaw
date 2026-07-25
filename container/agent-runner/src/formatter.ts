@@ -134,6 +134,9 @@ export function extractRouting(messages: MessageInRow[]): RoutingContext {
 export function formatMessages(messages: MessageInRow[]): string {
   const header = `<context timezone="${escapeXml(TIMEZONE)}" />\n`;
   if (messages.length === 0) return header;
+  const deliveryContext = messages.some((m) => m.trigger === 0)
+    ? '<delivery_context>Messages marked delivery="accumulated" were stored as background context. A later message matched your engagement policy, initiated this turn, and brought them into context.</delivery_context>\n'
+    : '';
 
   // Group by kind
   const chatMessages = messages.filter((m) => m.kind === 'chat' || m.kind === 'chat-sdk');
@@ -156,7 +159,7 @@ export function formatMessages(messages: MessageInRow[]): string {
     parts.push(...systemMessages.map(formatSystemMessage));
   }
 
-  return header + parts.join('\n\n');
+  return header + deliveryContext + parts.join('\n\n');
 }
 
 function formatChatMessages(messages: MessageInRow[]): string {
@@ -177,13 +180,14 @@ function formatSingleChat(msg: MessageInRow): string {
   const time = formatLocalTime(msg.timestamp, TIMEZONE);
   const text = content.text || '';
   const idAttr = msg.seq != null ? ` id="${msg.seq}"` : '';
+  const deliveryAttr = msg.trigger === 0 ? ' delivery="accumulated"' : '';
   const replyAttr = content.replyTo?.id ? ` reply_to="${escapeXml(String(content.replyTo.id))}"` : '';
   const replyPrefix = formatReplyContext(content.replyTo);
   const attachmentsSuffix = formatAttachments(content.attachments);
 
   const fromAttr = originAttr(msg);
 
-  return `<message${idAttr}${fromAttr} sender="${escapeXml(sender)}" time="${escapeXml(time)}"${replyAttr}>${replyPrefix}${escapeXml(text)}${attachmentsSuffix}</message>`;
+  return `<message${idAttr}${deliveryAttr}${fromAttr} sender="${escapeXml(sender)}" time="${escapeXml(time)}"${replyAttr}>${replyPrefix}${escapeXml(text)}${attachmentsSuffix}</message>`;
 }
 
 /**

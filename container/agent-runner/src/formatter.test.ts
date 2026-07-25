@@ -28,15 +28,15 @@ function insertMessage(
   id: string,
   kind: string,
   content: object,
-  opts?: { timestamp?: string },
+  opts?: { timestamp?: string; trigger?: number },
 ) {
   const timestamp = opts?.timestamp ?? new Date().toISOString();
   getInboundDb()
     .prepare(
-      `INSERT INTO messages_in (id, kind, timestamp, status, content)
-       VALUES (?, ?, ?, 'pending', ?)`,
+      `INSERT INTO messages_in (id, kind, timestamp, status, trigger, content)
+       VALUES (?, ?, ?, 'pending', ?, ?)`,
     )
-    .run(id, kind, timestamp, JSON.stringify(content));
+    .run(id, kind, timestamp, opts?.trigger ?? 1, JSON.stringify(content));
 }
 
 describe('context timezone header', () => {
@@ -120,6 +120,30 @@ describe('multi-message chat batches', () => {
     expect(firstIdx).toBeGreaterThan(0);
     expect(secondIdx).toBeGreaterThan(firstIdx);
     expect(thirdIdx).toBeGreaterThan(secondIdx);
+  });
+});
+
+describe('accumulated message context', () => {
+  it('labels background messages and explains how they entered the turn', () => {
+    insertMessage('m1', 'chat', { sender: 'Alice', text: 'background question' }, { trigger: 0 });
+    insertMessage('m2', 'chat', { sender: 'Alice', text: '@bot are you there?' });
+
+    const result = formatMessages(getPendingMessages());
+
+    expect(result).toContain(
+      '<delivery_context>Messages marked delivery="accumulated" were stored as background context.',
+    );
+    expect(result).toMatch(/<message[^>]*delivery="accumulated"[^>]*>background question<\/message>/);
+    expect(result).toMatch(/<message(?![^>]*delivery="accumulated")[^>]*>@bot are you there\?<\/message>/);
+  });
+
+  it('keeps ordinary message prompts free of accumulated-delivery metadata', () => {
+    insertMessage('m1', 'chat', { sender: 'Alice', text: 'ordinary message' });
+
+    const result = formatMessages(getPendingMessages());
+
+    expect(result).not.toContain('<delivery_context>');
+    expect(result).not.toContain('delivery="accumulated"');
   });
 });
 
