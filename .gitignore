@@ -46,3 +46,16 @@ AGENTS.md
 docs/maintainer-guide.md
 docs/drafts/
 forks.md
+
+# ─── fork-local: this fork is PUBLIC ───────────────────────────────────────
+# Code patches and generic skills are committed; anything describing THIS
+# install is not. See ONECLI-NOTES.md for the policy.
+
+# Operational notes: host paths, install slug, uid/gid, bind addresses, port
+# assignments, and co-tenant service names. Infrastructure map — keep local.
+ONECLI-NOTES.md
+
+# Agent templates may carry personal instructions/MCP wiring. Upstream ships
+# only the README; keep local template bundles untracked.
+templates/*
+!templates/README.md
