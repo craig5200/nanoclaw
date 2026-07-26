@@ -136,9 +136,7 @@ describe('bind address (fork change)', () => {
     expect(await res.json()).toEqual({ via: 'bound' });
 
     // Same port on a different loopback address must be refused.
-    await expect(
-      fetch(`http://127.0.0.1:${PORT}/webhook/slack`, { method: 'POST', body: 'x' }),
-    ).rejects.toThrow();
+    await expect(fetch(`http://127.0.0.1:${PORT}/webhook/slack`, { method: 'POST', body: 'x' })).rejects.toThrow();
   });
 
   it('defaults to loopback, never 0.0.0.0', () => {
