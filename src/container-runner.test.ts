@@ -50,10 +50,12 @@ describe('buildContainerArgs ordering invariant (structural)', () => {
 describe('per-container resource limits (structural)', () => {
   // CONTAINER_CPU_LIMIT / CONTAINER_MEMORY_LIMIT pass through to `docker run` as
   // --cpus / --memory, but only when set. The default is empty string → no flag →
-  // today's unbounded behavior (don't OOM existing OSS workloads). Swap is not
-  // managed here (a swapless host makes --memory a hard cap). buildContainerArgs
-  // needs a live gateway to drive, so guard the wiring structurally: the flags
-  // must be pushed, and each must be guarded by its env knob so empty emits nothing.
+  // today's unbounded behavior (don't OOM existing OSS workloads). --memory-swap
+  // is pinned to the same value as --memory so the cap stays hard on a host that
+  // has swap (fork change: this install shares a box with other services and must
+  // fail fast rather than swap-thrash). buildContainerArgs needs a live gateway to
+  // drive, so guard the wiring structurally: the flags must be pushed, and each
+  // must be guarded by its env knob so empty emits nothing.
   it('reads both limit knobs from config', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'src', 'container-runner.ts'), 'utf-8');
     expect(src).toContain('CONTAINER_CPU_LIMIT');
@@ -65,10 +67,18 @@ describe('per-container resource limits (structural)', () => {
     expect(src).toMatch(/if \(CONTAINER_CPU_LIMIT\)[\s\S]*?args\.push\('--cpus', CONTAINER_CPU_LIMIT\)/);
   });
 
-  it('guards --memory behind a truthy CONTAINER_MEMORY_LIMIT (and sets no swap flag)', () => {
+  it('guards --memory behind a truthy CONTAINER_MEMORY_LIMIT', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'src', 'container-runner.ts'), 'utf-8');
-    expect(src).toMatch(/if \(CONTAINER_MEMORY_LIMIT\) args\.push\('--memory', CONTAINER_MEMORY_LIMIT\)/);
-    expect(src).not.toContain('--memory-swap');
+    expect(src).toMatch(/if \(CONTAINER_MEMORY_LIMIT\)[\s\S]*?args\.push\('--memory', CONTAINER_MEMORY_LIMIT\)/);
+  });
+
+  it('pins --memory-swap to --memory so the cap is hard on a swap-enabled host', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src', 'container-runner.ts'), 'utf-8');
+    expect(src).toMatch(/args\.push\('--memory-swap', CONTAINER_MEMORY_LIMIT\)/);
+    // Both flags live under the same guard — an unset knob must emit neither.
+    expect(src).toMatch(
+      /if \(CONTAINER_MEMORY_LIMIT\) \{[\s\S]*?--memory'[\s\S]*?--memory-swap'[\s\S]*?\}/,
+    );
   });
 
   it('defaults both knobs to empty string in config (no flag = unbounded)', () => {

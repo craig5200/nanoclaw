@@ -467,11 +467,16 @@ async function buildContainerArgs(
   const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
 
   // Per-container resource caps (opt-in; empty = unbounded, today's behavior).
-  // Only --memory is set. Whether that's a hard cap depends on the host having no
-  // swap (a deployment concern) — on a swapless host --memory is hard and a runaway
-  // is OOM-killed; we don't manage swap from here.
+  // --memory alone is only a hard cap on a swapless host: with swap present the
+  // container spills past the limit into swap instead of being OOM-killed, which
+  // on a shared box degrades every co-tenant service rather than failing fast.
+  // Pinning --memory-swap to the same value gives the container zero swap budget,
+  // so the limit is hard regardless of host swap configuration.
   if (CONTAINER_CPU_LIMIT) args.push('--cpus', CONTAINER_CPU_LIMIT);
-  if (CONTAINER_MEMORY_LIMIT) args.push('--memory', CONTAINER_MEMORY_LIMIT);
+  if (CONTAINER_MEMORY_LIMIT) {
+    args.push('--memory', CONTAINER_MEMORY_LIMIT);
+    args.push('--memory-swap', CONTAINER_MEMORY_LIMIT);
+  }
 
   // Docker defaults /dev/shm to 64m, which silently short-writes past that size.
   // agent-browser passes --disable-dev-shm-usage, but a third-party puppeteer or
