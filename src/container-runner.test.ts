@@ -76,9 +76,7 @@ describe('per-container resource limits (structural)', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'src', 'container-runner.ts'), 'utf-8');
     expect(src).toMatch(/args\.push\('--memory-swap', CONTAINER_MEMORY_LIMIT\)/);
     // Both flags live under the same guard — an unset knob must emit neither.
-    expect(src).toMatch(
-      /if \(CONTAINER_MEMORY_LIMIT\) \{[\s\S]*?--memory'[\s\S]*?--memory-swap'[\s\S]*?\}/,
-    );
+    expect(src).toMatch(/if \(CONTAINER_MEMORY_LIMIT\) \{[\s\S]*?--memory'[\s\S]*?--memory-swap'[\s\S]*?\}/);
   });
 
   it('defaults both knobs to empty string in config (no flag = unbounded)', () => {
