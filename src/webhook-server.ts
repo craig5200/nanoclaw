@@ -17,6 +17,18 @@ import type { Chat } from 'chat';
 import { log } from './log.js';
 
 const DEFAULT_PORT = 3000;
+/**
+ * Bind address for the shared webhook server. Upstream binds 0.0.0.0
+ * unconditionally, which publishes the port on every interface as soon as any
+ * non-gateway adapter registers — including polling adapters like Telegram,
+ * which register here (chat-sdk-bridge.ts routes on `startGatewayListener`,
+ * not on whether the adapter actually needs inbound HTTP) but never receive a
+ * webhook. Default to loopback so nothing is exposed unless asked for.
+ *
+ * Set WEBHOOK_HOST=0.0.0.0 only when a genuinely webhook-driven channel needs
+ * to be reachable, and prefer putting a reverse proxy in front of it.
+ */
+const DEFAULT_HOST = '127.0.0.1';
 
 interface WebhookEntry {
   chat: Chat;
@@ -111,6 +123,7 @@ function ensureServer(): void {
   if (server) return;
 
   const port = parseInt(process.env.WEBHOOK_PORT || String(DEFAULT_PORT), 10);
+  const host = process.env.WEBHOOK_HOST || DEFAULT_HOST;
 
   server = http.createServer(async (req, res) => {
     const url = req.url || '/';
@@ -159,8 +172,8 @@ function ensureServer(): void {
     }
   });
 
-  server.listen(port, '0.0.0.0', () => {
-    log.info('Webhook server started', { port, adapters: [...routes.keys()] });
+  server.listen(port, host, () => {
+    log.info('Webhook server started', { host, port, adapters: [...routes.keys()] });
   });
 }
 

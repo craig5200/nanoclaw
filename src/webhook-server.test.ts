@@ -8,6 +8,9 @@
  * route byte-identical. Conventions follow PR #2617: real HTTP server on a
  * fixed WEBHOOK_PORT, real fetch.
  */
+import fs from 'fs';
+import path from 'path';
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import type { Chat } from 'chat';
@@ -54,6 +57,7 @@ beforeEach(() => {
 afterEach(async () => {
   await stopWebhookServer();
   delete process.env.WEBHOOK_PORT;
+  delete process.env.WEBHOOK_HOST;
 });
 
 describe('registerWebhookAdapter — route/handler split', () => {
@@ -102,5 +106,47 @@ describe('registerWebhookAdapter — route/handler split', () => {
     registerWebhookAdapter(chat, 'slack');
     const res = await post('/webhook/nope', 'x');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('bind address (fork change)', () => {
+  // Upstream binds 0.0.0.0 unconditionally, publishing the port on every
+  // interface the moment any non-gateway adapter registers — including
+  // polling adapters like Telegram, which register here but never receive a
+  // webhook. This install must not expose a public port, so the default is
+  // loopback and WEBHOOK_HOST is the opt-in escape hatch.
+
+  it('honors WEBHOOK_HOST: binds only the requested address', async () => {
+    // 127.0.0.2 is a distinct loopback alias, so this proves the address is
+    // really applied rather than being reachable via the catch-all bind.
+    process.env.WEBHOOK_HOST = '127.0.0.2';
+    const { chat } = stubChat('bound');
+    registerWebhookAdapter(chat, 'slack');
+
+    let res: Response | undefined;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        res = await fetch(`http://127.0.0.2:${PORT}/webhook/slack`, { method: 'POST', body: 'x' });
+        break;
+      } catch (err) {
+        if (attempt >= 20) throw err;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
+    expect(await res.json()).toEqual({ via: 'bound' });
+
+    // Same port on a different loopback address must be refused.
+    await expect(
+      fetch(`http://127.0.0.1:${PORT}/webhook/slack`, { method: 'POST', body: 'x' }),
+    ).rejects.toThrow();
+  });
+
+  it('defaults to loopback, never 0.0.0.0', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src', 'webhook-server.ts'), 'utf-8');
+    expect(src).toContain("const DEFAULT_HOST = '127.0.0.1'");
+    expect(src).toMatch(/const host = process\.env\.WEBHOOK_HOST \|\| DEFAULT_HOST/);
+    expect(src).toMatch(/server\.listen\(port, host,/);
+    // The unconditional public bind must not come back.
+    expect(src).not.toMatch(/server\.listen\([^)]*'0\.0\.0\.0'/);
   });
 });
