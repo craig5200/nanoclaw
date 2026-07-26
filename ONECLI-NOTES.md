@@ -166,3 +166,21 @@ cd /opt/nanoclaw && sudo -u nanoclaw env HOME=/home/nanoclaw \
 `src/webhook-server.ts` reads `process.env` directly and `src/config.ts` does
 **not** parse it from `.env`. Setting it in `.env` alone is a no-op. Default 3000
 would collide with the existing `next-server`.
+
+## 9. The webhook server binds loopback (fork change)
+
+Upstream binds `0.0.0.0` unconditionally. `chat-sdk-bridge.ts` decides whether
+to register a webhook based on the adapter exposing `startGatewayListener` —
+**not** on whether it needs inbound HTTP. Telegram runs `mode: 'polling'` and has
+no gateway listener, so it takes the non-gateway branch and calls
+`registerWebhookAdapter` → `ensureServer()`. Installing Telegram therefore opened
+a public port serving a route Telegram never calls.
+
+Commit `640f56da` defaults the bind to `127.0.0.1` and adds `WEBHOOK_HOST` as the
+opt-in override. Only set `WEBHOOK_HOST=0.0.0.0` for a genuinely webhook-driven
+channel, and put a reverse proxy in front of it.
+
+**Verify nothing is publicly bound after any channel install:**
+```bash
+ss -tlnp | grep -E ':18420|0\.0\.0\.0:18420'   # want: loopback only, or nothing
+```
