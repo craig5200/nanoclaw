@@ -462,6 +462,8 @@ export class ClaudeProvider implements AgentProvider {
   private additionalDirectories?: string[];
   private model?: string;
   private effort?: string;
+  private maxBudgetUsd?: number;
+  private maxTurns?: number;
   private memorySessionHook?: MemorySessionHookRegistration;
 
   constructor(options: ProviderOptions = {}) {
@@ -470,6 +472,10 @@ export class ClaudeProvider implements AgentProvider {
     this.additionalDirectories = options.additionalDirectories;
     this.model = options.model;
     this.effort = options.effort;
+    // 0 means "disabled" — pass undefined so the SDK sees no ceiling at all
+    // rather than a literal 0, which would stop the query immediately.
+    this.maxBudgetUsd = options.maxBudgetUsd ? options.maxBudgetUsd : undefined;
+    this.maxTurns = options.maxTurns ? options.maxTurns : undefined;
     this.env = {
       ...(options.env ?? {}),
       CLAUDE_CODE_AUTO_COMPACT_WINDOW,
@@ -545,6 +551,11 @@ export class ClaudeProvider implements AgentProvider {
         model: this.model,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         effort: this.effort as any,
+        // Runaway guards. Both are enforced by the SDK harness, not the model:
+        // it ends the query and returns `error_max_budget_usd` /
+        // `error_max_turns`. Undefined when disabled (see constructor).
+        maxBudgetUsd: this.maxBudgetUsd,
+        maxTurns: this.maxTurns,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user', 'local'],
@@ -559,6 +570,10 @@ export class ClaudeProvider implements AgentProvider {
     });
 
     let aborted = false;
+    // Captured for the result branch below: `translateEvents` is a function
+    // declaration, so `this` is not bound inside it.
+    const budgetCap = this.maxBudgetUsd;
+    const turnCap = this.maxTurns;
 
     async function* translateEvents(): AsyncGenerator<ProviderEvent> {
       let messageCount = 0;
@@ -576,8 +591,50 @@ export class ClaudeProvider implements AgentProvider {
           // (e.g. a non-retryable 403 billing_error) carry their message in
           // `errors[]` instead. Surface either so the poll-loop can deliver a
           // billing/quota notice to the user rather than dropping the turn.
-          const m = message as { result?: string; is_error?: boolean; errors?: string[] };
-          const text = m.result ?? (m.errors && m.errors.length > 0 ? m.errors.join('\n') : null);
+          const m = message as {
+            result?: string;
+            is_error?: boolean;
+            errors?: string[];
+            subtype?: string;
+            total_cost_usd?: number;
+            num_turns?: number;
+          };
+
+          // Cost/turn accounting. The SDK reports these on every result and
+          // nothing else in the runner reads them, so without this line we
+          // have no evidence for whether the guards above are set sensibly —
+          // or what any given turn actually cost.
+          if (typeof m.total_cost_usd === 'number') {
+            log(
+              `usage: cost=$${m.total_cost_usd.toFixed(4)}` +
+                (typeof m.num_turns === 'number' ? ` turns=${m.num_turns}` : '') +
+                (budgetCap ? ` budget=$${budgetCap.toFixed(2)}` : '') +
+                (turnCap ? ` turnCap=${turnCap}` : ''),
+            );
+          }
+
+          // A tripped guard is a harness stop, not a model failure. The raw
+          // SDK text is opaque, so translate it into something the user can
+          // act on and keep whatever partial output we already have.
+          let text = m.result ?? (m.errors && m.errors.length > 0 ? m.errors.join('\n') : null);
+          if (m.subtype === 'error_max_budget_usd') {
+            log(`GUARD TRIPPED: max budget ${budgetCap ? `$${budgetCap.toFixed(2)}` : ''} exhausted`);
+            text =
+              `I hit the safety spending limit for this session` +
+              (budgetCap ? ` ($${budgetCap.toFixed(2)})` : '') +
+              ` and stopped there.\n\n` +
+              `That ceiling exists to catch a runaway loop, so this probably means I was going in circles ` +
+              `rather than that the task was genuinely that big. Tell me to continue and I'll pick up in a fresh session.` +
+              (text ? `\n\n---\n\n${text}` : '');
+          } else if (m.subtype === 'error_max_turns') {
+            log(`GUARD TRIPPED: max turns ${turnCap ?? ''} reached`);
+            text =
+              `I hit the safety limit on steps for this session` +
+              (turnCap ? ` (${turnCap} turns)` : '') +
+              ` and stopped there.\n\n` +
+              `That usually means I was looping rather than making progress. Tell me to continue and I'll start fresh.` +
+              (text ? `\n\n---\n\n${text}` : '');
+          }
           yield { type: 'result', text, isError: m.is_error === true };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
           yield { type: 'error', message: 'API retry', retryable: true };

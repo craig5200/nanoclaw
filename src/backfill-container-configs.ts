@@ -59,6 +59,10 @@ export function backfillContainerConfigs(): void {
       image_tag: legacy.imageTag ?? null,
       assistant_name: legacy.assistantName ?? null,
       max_messages_per_prompt: legacy.maxMessagesPerPrompt ?? null,
+      // Legacy container.json predates the runaway guards; NULL means the
+      // backfilled group picks up the instance default.
+      max_budget_usd: null,
+      max_turns: null,
       skills: JSON.stringify(legacy.skills ?? 'all'),
       mcp_servers: JSON.stringify(legacy.mcpServers ?? {}),
       packages_apt: JSON.stringify(legacy.packages?.apt ?? []),

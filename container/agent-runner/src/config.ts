@@ -18,6 +18,9 @@ export interface RunnerConfig {
   mcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }>;
   model?: string;
   effort?: string;
+  /** Runaway guards, pre-resolved by the host. 0 = disabled. */
+  maxBudgetUsd?: number;
+  maxTurns?: number;
 }
 
 const DEFAULT_MAX_MESSAGES = 10;
@@ -47,6 +50,8 @@ export function loadConfig(): RunnerConfig {
     mcpServers: (raw.mcpServers as RunnerConfig['mcpServers']) || {},
     model: (raw.model as string) || undefined,
     effort: (raw.effort as string) || undefined,
+    maxBudgetUsd: typeof raw.maxBudgetUsd === 'number' ? raw.maxBudgetUsd : undefined,
+    maxTurns: typeof raw.maxTurns === 'number' ? raw.maxTurns : undefined,
   };
 
   return _config;

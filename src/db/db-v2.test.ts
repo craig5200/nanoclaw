@@ -455,6 +455,8 @@ describe('container configs', () => {
     createContainerConfig({
       agent_group_id: 'ag-full',
       provider: null,
+      max_budget_usd: null,
+      max_turns: null,
       model: null,
       effort: null,
       image_tag: null,

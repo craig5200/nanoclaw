@@ -27,6 +27,8 @@ function presentConfig(row: ContainerConfigRow): Record<string, unknown> {
     image_tag: row.image_tag,
     assistant_name: row.assistant_name,
     max_messages_per_prompt: row.max_messages_per_prompt,
+    max_budget_usd: row.max_budget_usd,
+    max_turns: row.max_turns,
     skills: JSON.parse(row.skills),
     mcp_servers: JSON.parse(row.mcp_servers),
     packages_apt: JSON.parse(row.packages_apt),
@@ -256,7 +258,8 @@ registerResource({
       access: 'approval',
       description:
         'Update container config scalar fields. Changes are saved but do NOT take effect until you run `ncl groups restart`. ' +
-        'Use --id <group-id> and any of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope.',
+        'Use --id <group-id> and any of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope, --max-budget-usd, --max-turns. ' +
+        'The two guards are runaway circuit breakers scoped to one container wake; null uses the instance default, 0 disables.',
       handler: async (args) => {
         const id = args.id as string;
         if (!id) throw new Error('--id is required');
@@ -266,7 +269,15 @@ registerResource({
         const updates: Partial<
           Pick<
             ContainerConfigRow,
-            'provider' | 'model' | 'effort' | 'image_tag' | 'assistant_name' | 'max_messages_per_prompt' | 'cli_scope'
+            | 'provider'
+            | 'model'
+            | 'effort'
+            | 'image_tag'
+            | 'assistant_name'
+            | 'max_messages_per_prompt'
+            | 'cli_scope'
+            | 'max_budget_usd'
+            | 'max_turns'
           >
         > = {};
         if (args.provider !== undefined) updates.provider = args.provider as string;
@@ -276,6 +287,22 @@ registerResource({
         if (args.assistant_name !== undefined) updates.assistant_name = args.assistant_name as string;
         if (args.max_messages_per_prompt !== undefined)
           updates.max_messages_per_prompt = Number(args.max_messages_per_prompt);
+        // Runaway guards. Accept both hyphen and snake spellings (as cli-scope
+        // does). Reject non-numeric and negative input rather than coercing:
+        // Number('abc') is NaN, and storing NaN/-1 would resolve back to the
+        // instance default at spawn, silently ignoring an operator's intent.
+        for (const [flag, col] of [
+          ['max-budget-usd', 'max_budget_usd'],
+          ['max-turns', 'max_turns'],
+        ] as const) {
+          const raw = args[flag] ?? args[col];
+          if (raw === undefined) continue;
+          const n = Number(raw);
+          if (!Number.isFinite(n) || n < 0) {
+            throw new Error(`--${flag} must be a non-negative number (0 disables the guard), got: ${String(raw)}`);
+          }
+          updates[col] = n;
+        }
         if (args['cli-scope'] !== undefined || args.cli_scope !== undefined) {
           const scope = (args['cli-scope'] ?? args.cli_scope) as string;
           if (!['disabled', 'group', 'global'].includes(scope)) {
@@ -286,7 +313,7 @@ registerResource({
 
         if (Object.keys(updates).length === 0) {
           throw new Error(
-            'Nothing to update — provide at least one of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope',
+            'Nothing to update — provide at least one of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope, --max-budget-usd, --max-turns',
           );
         }
 

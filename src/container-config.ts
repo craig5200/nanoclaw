@@ -11,7 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { GROUPS_DIR } from './config.js';
+import { DEFAULT_MAX_BUDGET_USD, DEFAULT_MAX_TURNS, GROUPS_DIR } from './config.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import type { AgentGroup, ContainerConfigRow } from './types.js';
@@ -43,6 +43,26 @@ export interface ContainerConfig {
   maxMessagesPerPrompt?: number;
   model?: string;
   effort?: string;
+  /**
+   * Runaway guards, already resolved to effective values (per-group override →
+   * instance default). 0 means the guard is disabled. Written into
+   * container.json so the number in force is inspectable on disk rather than
+   * recomputed in the container.
+   */
+  maxBudgetUsd?: number;
+  maxTurns?: number;
+}
+
+/**
+ * Resolve a runaway guard: an explicit per-group value wins (including 0,
+ * which disables the guard); NULL falls back to the instance default.
+ * Negative or non-finite stored values are treated as unset — a corrupt row
+ * must not silently remove the guard.
+ */
+function resolveGuard(groupValue: number | null | undefined, instanceDefault: number): number {
+  if (groupValue == null) return instanceDefault;
+  if (!Number.isFinite(groupValue) || groupValue < 0) return instanceDefault;
+  return groupValue;
 }
 
 /** Build a `ContainerConfig` from a DB row + agent group identity. */
@@ -63,6 +83,8 @@ export function configFromDb(row: ContainerConfigRow, group: AgentGroup): Contai
     maxMessagesPerPrompt: row.max_messages_per_prompt ?? undefined,
     model: row.model ?? undefined,
     effort: row.effort ?? undefined,
+    maxBudgetUsd: resolveGuard(row.max_budget_usd, DEFAULT_MAX_BUDGET_USD),
+    maxTurns: resolveGuard(row.max_turns, DEFAULT_MAX_TURNS),
   };
 }
 

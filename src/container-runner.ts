@@ -179,6 +179,13 @@ async function spawnContainer(session: Session): Promise<void> {
   container.stderr?.on('data', (data) => {
     for (const line of data.toString().trim().split('\n')) {
       if (!line) continue;
+      // Container stderr is debug-level, which the default log level hides.
+      // Two lines have to survive that: per-wake cost (the only evidence for
+      // whether the runaway guards are set sensibly) and a tripped guard
+      // (an operator event, not chatter). Promote both to info.
+      if (line.includes('usage: cost=') || line.includes('GUARD TRIPPED')) {
+        log.info(line.replace(/^\[[^\]]+\]\s*/, ''), { container: agentGroup.folder });
+      }
       log.debug(line, { container: agentGroup.folder });
       stderrTail.push(line);
       if (stderrTail.length > 10) stderrTail.shift();

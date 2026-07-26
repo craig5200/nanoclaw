@@ -76,6 +76,14 @@ export interface ProviderOptions {
    * through to the underlying SDK. If omitted, the SDK default is used.
    */
   effort?: string;
+  /**
+   * Runaway guards. Enforced harness-side by the Claude SDK, which ends the
+   * query with `error_max_budget_usd` / `error_max_turns`. Scope is one
+   * query, i.e. one container wake. 0 or undefined disables. Providers that
+   * have no equivalent ignore these, as with `model`/`effort`.
+   */
+  maxBudgetUsd?: number;
+  maxTurns?: number;
 }
 
 export interface QueryInput {

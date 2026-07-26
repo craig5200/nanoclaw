@@ -16,6 +16,8 @@ const envConfig = readEnvFile([
   'CONTAINER_CPU_LIMIT',
   'CONTAINER_MEMORY_LIMIT',
   'CONTAINER_PIDS_LIMIT',
+  'NANOCLAW_MAX_BUDGET_USD',
+  'NANOCLAW_MAX_TURNS',
   'NANOCLAW_EGRESS_LOCKDOWN',
   'NANOCLAW_EGRESS_NETWORK',
   'ONECLI_GATEWAY_CONTAINER',
@@ -86,6 +88,47 @@ export const CONTAINER_MEMORY_LIMIT = process.env.CONTAINER_MEMORY_LIMIT || envC
 // blocks it from spawning subprocesses, and neither is reported as a PID limit.
 // Empty = no cap.
 export const CONTAINER_PIDS_LIMIT = process.env.CONTAINER_PIDS_LIMIT ?? envConfig.CONTAINER_PIDS_LIMIT ?? '2048';
+
+/**
+ * Runaway guards — instance defaults, overridable per agent group via
+ * `container_configs.max_budget_usd` / `.max_turns`.
+ *
+ * Unlike CONTAINER_*_LIMIT (empty = unbounded), these default to ON. Nothing
+ * else bounds a *busy* agent loop: the host sweep kills on heartbeat silence
+ * and a runaway is maximally noisy, so it never trips. The Agent SDK enforces
+ * both harness-side, ending the query with `error_max_budget_usd` /
+ * `error_max_turns`.
+ *
+ * These are circuit breakers, not task management — a normal errand must never
+ * reach them. Scope is one container wake (poll-loop opens a single sdkQuery
+ * and pushes every later message into it), so the ceiling spans all messages
+ * handled while the container stays warm; the next wake starts fresh.
+ *
+ * Budget is the primary guard: turns are a poor proxy because one turn can be
+ * a 200-token reply or a 100k-token page read, and $/turn differs several-fold
+ * between models. Turns are the backstop for tight loops that burn wall-clock
+ * without much spend. Set either to 0 to disable.
+ */
+export const DEFAULT_MAX_BUDGET_USD = resolveNumericDefault(
+  process.env.NANOCLAW_MAX_BUDGET_USD || envConfig.NANOCLAW_MAX_BUDGET_USD,
+  5.0,
+);
+export const DEFAULT_MAX_TURNS = resolveNumericDefault(
+  process.env.NANOCLAW_MAX_TURNS || envConfig.NANOCLAW_MAX_TURNS,
+  200,
+);
+
+/**
+ * Parse an operator-supplied numeric override. Falls back to `fallback` when
+ * unset, unparseable, or negative — a malformed guard must never silently
+ * become "unbounded". An explicit 0 is honored (disables the guard).
+ */
+function resolveNumericDefault(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
 
 // Egress lockdown — force all agent traffic through the OneCLI gateway on a
 // no-internet Docker network. Off by default; consumed by src/egress-lockdown.ts.

@@ -104,6 +104,8 @@ async function main(): Promise<void> {
     additionalDirectories: additionalDirectories.length > 0 ? additionalDirectories : undefined,
     model: config.model,
     effort: config.effort,
+    maxBudgetUsd: config.maxBudgetUsd,
+    maxTurns: config.maxTurns,
   });
   provider.registerMemorySessionHook(MEMORY_SESSION_HOOK);
 

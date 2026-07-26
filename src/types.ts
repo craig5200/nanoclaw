@@ -19,6 +19,10 @@ export interface ContainerConfigRow {
   image_tag: string | null;
   assistant_name: string | null;
   max_messages_per_prompt: number | null;
+  /** Runaway guard: USD ceiling per container wake. NULL = instance default, 0 = unbounded. */
+  max_budget_usd: number | null;
+  /** Runaway guard: agentic turn ceiling per container wake. NULL = instance default, 0 = unbounded. */
+  max_turns: number | null;
   skills: string; // JSON: '"all"' | '["skill1","skill2"]'
   mcp_servers: string; // JSON: Record<string, McpServerConfig>
   packages_apt: string; // JSON: string[]
