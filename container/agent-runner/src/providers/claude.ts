@@ -203,7 +203,37 @@ function parseTranscript(content: string): ParsedMessage[] {
   return messages;
 }
 
-function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | null, assistantName?: string): string {
+/** First and last entry timestamps in an already-loaded transcript. */
+interface TranscriptSpan {
+  startMs: number | null;
+  endMs: number | null;
+}
+
+function transcriptSpan(content: string): TranscriptSpan {
+  let startMs: number | null = null;
+  let endMs: number | null = null;
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    let ms: number;
+    try {
+      const ts = JSON.parse(line)?.timestamp;
+      ms = ts ? Date.parse(ts) : NaN;
+    } catch {
+      continue;
+    }
+    if (Number.isNaN(ms)) continue;
+    if (startMs === null) startMs = ms;
+    endMs = ms;
+  }
+  return { startMs, endMs };
+}
+
+function formatTranscriptMarkdown(
+  messages: ParsedMessage[],
+  title?: string | null,
+  assistantName?: string,
+  span?: TranscriptSpan,
+): string {
   const now = new Date();
   const dateStr = now.toLocaleString('en-US', {
     month: 'short',
@@ -212,7 +242,17 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
     minute: '2-digit',
     hour12: true,
   });
-  const lines = [`# ${title || 'Conversation'}`, '', `Archived: ${dateStr}`, '', '---', ''];
+  const lines = [`# ${title || 'Conversation'}`, ''];
+  // `Covers` is when the conversation happened; `Archived` is only when this
+  // dump was taken. They differ by days on a rotation archive. A session can
+  // also straddle midnight, so the filename's start date alone doesn't tell a
+  // reader which days are inside — state the span explicitly.
+  if (span?.startMs != null) {
+    const from = formatLocalStamp(new Date(span.startMs), TIMEZONE);
+    const to = span.endMs != null ? formatLocalStamp(new Date(span.endMs), TIMEZONE) : null;
+    lines.push(to && to !== from ? `Covers: ${from} — ${to}` : `Covers: ${from}`);
+  }
+  lines.push(`Archived: ${dateStr}`, '', '---', '');
   for (const msg of messages) {
     const sender = msg.role === 'user' ? 'User' : assistantName || 'Assistant';
     const content = msg.content.length > 2000 ? msg.content.slice(0, 2000) + '...' : msg.content;
@@ -292,25 +332,65 @@ function archiveTranscriptFile(
       }
     }
 
-    const name = summary
+    const slug = summary
       ? summary
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-+|-+$/g, '')
           .slice(0, 50)
-      : `conversation-${new Date().getHours().toString().padStart(2, '0')}${new Date().getMinutes().toString().padStart(2, '0')}`;
+      : '';
 
     const conversationsDir = process.env.NANOCLAW_CONVERSATIONS_DIR || '/workspace/agent/conversations';
     fs.mkdirSync(conversationsDir, { recursive: true });
-    // Local calendar date — the fallback `name` above already uses local
-    // hours, and the agent navigates conversations/ by these date prefixes.
-    const filename = `${formatLocalStamp(new Date(), TIMEZONE).slice(0, 10)}-${name}.md`;
-    fs.writeFileSync(path.join(conversationsDir, filename), formatTranscriptMarkdown(messages, summary, assistantName));
+
+    // Filename identifies the *conversation*, not the moment of archiving:
+    // local calendar date of the transcript's first entry (the agent navigates
+    // conversations/ by these date prefixes) plus a short session id. Wall-clock
+    // naming filed a rotation archive under the rotation date — days after the
+    // conversation it contained — while a stale, strictly shorter PreCompact
+    // dump of the same session kept the correct date prefix and shadowed it.
+    const sessionKey = sessionId || path.basename(transcriptPath, '.jsonl');
+    const shortId = sessionKey.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'session';
+    const span = transcriptSpan(content);
+    const dateStr = formatLocalStamp(new Date(span.startMs ?? Date.now()), TIMEZONE).slice(0, 10);
+    const stem = `${dateStr}-${shortId}`;
+    const filename = slug ? `${stem}-${slug}.md` : `${stem}.md`;
+
+    // Every dump of a session re-reads the whole transcript, so a later archive
+    // is always a superset of an earlier one. Drop same-session files whose
+    // slug has since changed (the SDK summary can appear or shift between
+    // compactions) so one session leaves exactly one file, always the latest.
+    pruneSupersededArchives(conversationsDir, stem, filename);
+
+    fs.writeFileSync(
+      path.join(conversationsDir, filename),
+      formatTranscriptMarkdown(messages, summary, assistantName, span),
+    );
     log(`Archived conversation to ${filename}`);
     return true;
   } catch (err) {
     log(`Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`);
     return false;
+  }
+}
+
+/**
+ * Remove earlier archives of the same session (same `<date>-<shortId>` stem)
+ * that a slug change would otherwise leave behind as stale partials. Never
+ * touches the file about to be written, and never touches other sessions.
+ * Best-effort: a failure here just leaves an extra file.
+ */
+function pruneSupersededArchives(conversationsDir: string, stem: string, keep: string): void {
+  try {
+    for (const entry of fs.readdirSync(conversationsDir)) {
+      if (entry === keep || !entry.endsWith('.md')) continue;
+      if (entry === `${stem}.md` || entry.startsWith(`${stem}-`)) {
+        fs.rmSync(path.join(conversationsDir, entry));
+        log(`Pruned superseded archive ${entry}`);
+      }
+    }
+  } catch (err) {
+    log(`Failed to prune superseded archives: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

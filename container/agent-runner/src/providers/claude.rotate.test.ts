@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 
 import { ClaudeProvider } from './claude.js';
+import { formatLocalStamp, TIMEZONE } from '../timezone.js';
 
 // maybeRotateContinuation guards the cold-resume failure mode: a long-lived
 // session whose on-disk transcript has grown so large (or old) that the SDK
@@ -18,7 +19,7 @@ let prevDays: string | undefined;
 const PROJECT_DIR = '-workspace-agent';
 const CWD = '/workspace/agent';
 
-function writeTranscript(sessionId: string, bytes: number, firstTs?: string): string {
+function writeTranscript(sessionId: string, bytes: number, firstTs?: string, lastTs?: string): string {
   const dir = path.join(tmp, '.claude', 'projects', PROJECT_DIR);
   fs.mkdirSync(dir, { recursive: true });
   const p = path.join(dir, `${sessionId}.jsonl`);
@@ -28,8 +29,16 @@ function writeTranscript(sessionId: string, bytes: number, firstTs?: string): st
       timestamp: firstTs ?? new Date().toISOString(),
       message: { role: 'user', content: 'hello' },
     }) + '\n';
-  const filler = 'x'.repeat(Math.max(0, bytes - first.length));
-  fs.writeFileSync(p, first + filler);
+  const last = lastTs
+    ? '\n' +
+      JSON.stringify({
+        type: 'user',
+        timestamp: lastTs,
+        message: { role: 'user', content: 'goodbye' },
+      })
+    : '';
+  const filler = 'x'.repeat(Math.max(0, bytes - first.length - last.length));
+  fs.writeFileSync(p, first + filler + last);
   return p;
 }
 
@@ -45,7 +54,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  const restore = (k: string, v: string | undefined) => (v === undefined ? delete process.env[k] : (process.env[k] = v));
+  const restore = (k: string, v: string | undefined) =>
+    v === undefined ? delete process.env[k] : (process.env[k] = v);
   restore('HOME', prevHome);
   restore('NANOCLAW_CONVERSATIONS_DIR', prevConv);
   restore('CLAUDE_TRANSCRIPT_ROTATE_BYTES', prevBytes);
@@ -85,5 +95,79 @@ describe('ClaudeProvider.maybeRotateContinuation', () => {
   it('returns null for an unknown session id', () => {
     const provider = new ClaudeProvider();
     expect(provider.maybeRotateContinuation('does-not-exist', CWD)).toBeNull();
+  });
+});
+
+// Archive filenames identify the conversation, not the moment of archiving.
+// Wall-clock naming filed a rotation archive under the rotation date — days
+// after the conversation it contained — where the agent, navigating by date
+// prefix, never found it.
+describe('transcript archive naming', () => {
+  const CONV = () => process.env.NANOCLAW_CONVERSATIONS_DIR!;
+
+  function writeSessionsIndex(sessionId: string, summary: string): void {
+    const dir = path.join(tmp, '.claude', 'projects', PROJECT_DIR);
+    fs.writeFileSync(path.join(dir, 'sessions-index.json'), JSON.stringify({ entries: [{ sessionId, summary }] }));
+  }
+
+  function rotateAged(sessionId: string, firstTs: string): void {
+    process.env.CLAUDE_TRANSCRIPT_ROTATE_BYTES = String(1024 * 1024);
+    process.env.CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS = '7';
+    writeTranscript(sessionId, 2048, firstTs);
+    expect(new ClaudeProvider().maybeRotateContinuation(sessionId, CWD)).not.toBeNull();
+  }
+
+  it('dates the archive by the transcript start, not the archive time', () => {
+    const startedMs = Date.now() - 10 * 86400_000;
+    rotateAged('sess-dated', new Date(startedMs).toISOString());
+
+    const expected = formatLocalStamp(new Date(startedMs), TIMEZONE).slice(0, 10);
+    const today = formatLocalStamp(new Date(), TIMEZONE).slice(0, 10);
+    const files = fs.readdirSync(CONV());
+    expect(files).toHaveLength(1);
+    expect(files[0]).toStartWith(`${expected}-sessdate`); // start date + short session id
+    expect(files[0]).not.toStartWith(today);
+    expect(fs.readFileSync(path.join(CONV(), files[0]), 'utf-8')).toContain(`Covers: ${expected}`);
+  });
+
+  it('states the covered span so a session straddling midnight is still findable', () => {
+    // The real failure case: started late on one day, ran into the next. The
+    // filename can only carry the start date, so the header carries both ends.
+    const startedMs = Date.now() - 10 * 86400_000;
+    const endedMs = startedMs + 15 * 3600_000;
+    process.env.CLAUDE_TRANSCRIPT_ROTATE_BYTES = String(1024 * 1024);
+    process.env.CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS = '7';
+    writeTranscript('sess-span', 2048, new Date(startedMs).toISOString(), new Date(endedMs).toISOString());
+    expect(new ClaudeProvider().maybeRotateContinuation('sess-span', CWD)).not.toBeNull();
+
+    const files = fs.readdirSync(CONV());
+    const body = fs.readFileSync(path.join(CONV(), files[0]), 'utf-8');
+    const from = formatLocalStamp(new Date(startedMs), TIMEZONE);
+    const to = formatLocalStamp(new Date(endedMs), TIMEZONE);
+    expect(body).toContain(`Covers: ${from} — ${to}`);
+    expect(body).toContain('goodbye'); // the tail is in the dump, not just the header
+  });
+
+  it('supersedes an earlier archive of the same session when the summary slug changes', () => {
+    const firstTs = new Date(Date.now() - 10 * 86400_000).toISOString();
+    rotateAged('sess-super', firstTs);
+    const before = fs.readdirSync(CONV());
+    expect(before).toHaveLength(1);
+
+    // Same session archived again, now with an SDK summary — one file, not two.
+    writeSessionsIndex('sess-super', 'Weekly report draft');
+    rotateAged('sess-super', firstTs);
+
+    const after = fs.readdirSync(CONV());
+    expect(after).toHaveLength(1);
+    expect(after[0]).toEndWith('-weekly-report-draft.md');
+    expect(after).not.toContain(before[0]);
+  });
+
+  it('keeps archives of different sessions from the same day separate', () => {
+    const firstTs = new Date(Date.now() - 10 * 86400_000).toISOString();
+    rotateAged('sess-aaaaaaa1', firstTs);
+    rotateAged('sess-bbbbbbb2', firstTs);
+    expect(fs.readdirSync(CONV())).toHaveLength(2);
   });
 });
