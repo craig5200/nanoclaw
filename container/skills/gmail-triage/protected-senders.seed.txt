@@ -1,0 +1,27 @@
+# Never unsubscribe — 2FA, security, financial, legal.
+# One pattern per line. Substring match against the From header.
+# Matching senders are silently excluded: never proposed, never asked about.
+#
+# This is a GENERIC starter list. Add the specific banks, vendors, and services
+# this install actually uses to the group's own copy at
+# /workspace/agent/.gmail-triage/protected-senders.txt — that file is untracked,
+# so install-specific entries stay out of the repo.
+
+# --- Security / account integrity ---
+security@
+noreply@accounts.google.com
+verify
+2fa
+password
+account-recovery
+
+# --- Financial (generic) ---
+bank
+billing
+invoice
+statement
+
+# --- Government / legal ---
+.gov
+irs.gov
+legal@
