@@ -12,6 +12,13 @@
 
 FROM node:22-slim
 
+# Marks this as a NanoClaw agent image so a host-level `docker image prune -af`
+# can exempt it (`--filter "label!=nanoclaw-install"`). NanoClaw spawns
+# containers on demand, so the image reads as "unused" whenever no session is
+# live — an unfiltered -af reaps it and bricks every future spawn. Killed Caddy
+# on 2026-07-29. See ONECLI-NOTES.md section 11.
+LABEL nanoclaw-install="agent"
+
 # ---- Build-time arguments ----------------------------------------------------
 # CJK fonts add ~200MB. Opt in only if you render Chinese/Japanese/Korean text.
 ARG INSTALL_CJK_FONTS=false
