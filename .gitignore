@@ -59,3 +59,7 @@ ONECLI-NOTES.md
 # only the README; keep local template bundles untracked.
 templates/*
 !templates/README.md
+
+# Personal Claude Code overrides for this install (permission allowlists etc.).
+# .claude/settings.json is the shared, committed one; .local.json is not.
+.claude/settings.local.json
